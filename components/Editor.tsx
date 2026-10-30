@@ -412,15 +412,7 @@ export default function Editor() {
           <Timeline />
         </>
       )}
-      {modeTransitioning && (
-        <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-zinc-50 dark:bg-zinc-950"
-          aria-busy="true"
-          aria-live="polite"
-        >
-          <LogoLoader size={44} />
-        </div>
-      )}
+      {/* modeTransitioning overlay desativado */}
       {isElectron && (
         // Present in the layout tree (not display:none) so the native menu's
         // click() reliably opens the picker.

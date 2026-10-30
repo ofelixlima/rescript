@@ -27,6 +27,18 @@ import {
   setDesktopLocale,
 } from "./locale";
 
+// ============================================================================
+// ACELERAÇÃO NATIVA LINUX / WAYLAND ESTÁVEL
+// ============================================================================
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("enable-features", "SharedArrayBuffer");
+app.commandLine.appendSwitch("no-sandbox");
+
+// ============================================================================
+// ACELERAÇÃO NATIVA LINUX / INTEL: MULTI-THREADING E GPU
+// ============================================================================
+
 const isDev = !app.isPackaged;
 const DEV_SERVER_URL = process.env.ELECTRON_START_URL ?? "http://localhost:3000";
 const isMac = process.platform === "darwin";

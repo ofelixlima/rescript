@@ -16,6 +16,7 @@
  * is served same-origin from /vendor/ort* .
  */
 import {
+  env,
   pipeline,
   AutoProcessor,
   AutoModel,
@@ -24,7 +25,6 @@ import {
   AutoTokenizer,
   WhisperTextStreamer,
   Tensor,
-  env,
   type AutomaticSpeechRecognitionPipeline,
 } from "@huggingface/transformers";
 import { ModelManager, type ModelDefinition } from "weightlift";
@@ -82,6 +82,23 @@ import {
 } from "@/lib/vad";
 import { isNetworkError, installFetchRetry } from "@/lib/network";
 import { isWebGpuDeviceLostError } from "@/lib/webgpu";
+
+// ============================================================================
+// LIBERA TODAS AS 12 THREADS DA CPU PARA INFERÊNCIA DO WHISPER / ONNX
+// ============================================================================
+const CPU_THREADS = 12;
+if (typeof env !== "undefined" && env?.backends?.onnx?.wasm) {
+  env.backends.onnx.wasm.numThreads = CPU_THREADS;
+  env.backends.onnx.wasm.simd = true;
+}
+
+try {
+  // @ts-ignore
+  if (typeof self !== "undefined" && (self as any).ort?.env?.wasm) {
+    (self as any).ort.env.wasm.numThreads = CPU_THREADS;
+    (self as any).ort.env.wasm.simd = true;
+  }
+} catch {}
 
 /**
  * Weight downloads are the longest-running fetches in the app (over a gigabyte
