@@ -425,17 +425,20 @@ export default function TranscriptPanel() {
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-500 border-t-transparent dark:border-neutral-400" />
                   <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">{localizeRuntimeMessage(progress.message, t)}</p>
                   {progress.value !== null && (
-                    <>
-                      <div className="ml-auto w-[100px] h-1 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
-                        <div
-                          className="h-full rounded-full bg-neutral-500 transition-[width] duration-300 dark:bg-neutral-400"
-                          style={{ width: `${progress.value * 100}%` }}
-                        />
+                    <div className="ml-auto flex flex-col items-end gap-1">
+                      <div className="flex items-center gap-2">
+                        <div className="w-[120px] h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+                          <div
+                            className="h-full rounded-full bg-indigo-500 transition-[width] duration-300 dark:bg-indigo-400"
+                            style={{ width: `${progress.value * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-xs font-semibold tabular-nums text-zinc-700 dark:text-zinc-200">
+                          {Math.round(progress.value * 100)}%
+                        </span>
                       </div>
-                      <span className="text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
-                        {Math.round(progress.value * 100)}%
-                      </span>
-                    </>
+                      <ProgressEta value={progress.value} />
+                    </div>
                   )}
                 </div>
               </div>
@@ -613,5 +616,40 @@ export default function TranscriptPanel() {
         onUserScroll={markUserScrollGesture}
       />
     </section>
+  );
+}
+
+function ProgressEta({ value }: { value: number }) {
+  const [elapsed, setElapsed] = React.useState(0);
+  const startRef = React.useRef<number>(Date.now());
+
+  React.useEffect(() => {
+    startRef.current = Date.now();
+    const timer = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatTime = (seconds: number) => {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m ${s < 10 ? "0" : ""}${s}s`;
+  };
+
+  let texto = `${formatTime(elapsed)} decorridos`;
+
+  // Calcula a estimativa a partir de 3% para dar tempo da velocidade estabilizar
+  if (value > 0.03) {
+    const totalEstimado = elapsed / value;
+    const restante = Math.max(0, Math.round(totalEstimado - elapsed));
+    texto += ` • restam ~${formatTime(restante)} (total ~${formatTime(Math.round(totalEstimado))})`;
+  }
+
+  return (
+    <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
+      {texto}
+    </span>
   );
 }
