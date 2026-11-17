@@ -19,6 +19,7 @@ import { FloatingPortal } from "@floating-ui/react";
 import { useEditorStore } from "@/lib/store";
 import { isDisfluencyPlaceholder } from "@/lib/disfluencies";
 import TranscriptToolsMenu from "./TranscriptToolsMenu";
+import AiEditButton from "./AiEditButton";
 import {
   isTranscriptFile,
   parseTranscriptFile,
@@ -375,7 +376,12 @@ export default function TranscriptPanel() {
               )}
             </span>
           )}
-          {status === "ready" && <TranscriptToolsMenu />}
+          {status === "ready" && (
+            <>
+              <AiEditButton />
+              <TranscriptToolsMenu />
+            </>
+          )}
           {(status === "ready" || status === "error" || status === "transcribing") && (
             <>
               <label

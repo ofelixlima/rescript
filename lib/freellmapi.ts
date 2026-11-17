@@ -81,7 +81,90 @@ function encodeWav16k(samples: Float32Array, sampleRate = VAD_SAMPLE_RATE): Blob
   return new Blob([buffer], { type: "audio/wav" });
 }
 
-function distributeSegmentWords(
+interface SpeechIsland {
+  start: number;
+  end: number;
+  energy: number;
+}
+
+/**
+ * Mapeia as ilhas reais de voz na onda sonora (janelas de 10ms)
+ * para ancorar os timestamps das palavras nos picos físicos de áudio.
+ */
+function detectSpeechIslands(
+  samples: Float32Array,
+  rangeStart: number,
+  rangeEnd: number,
+  sampleRate = VAD_SAMPLE_RATE
+): SpeechIsland[] {
+  const frameStep = Math.floor(sampleRate * 0.01); // 10ms
+  const startIdx = Math.max(0, Math.floor(rangeStart * sampleRate));
+  const endIdx = Math.min(samples.length, Math.ceil(rangeEnd * sampleRate));
+  if (endIdx - startIdx < frameStep * 2) return [];
+
+  const rmsList: number[] = [];
+  for (let i = startIdx; i + frameStep <= endIdx; i += frameStep) {
+    let sum = 0;
+    for (let j = 0; j < frameStep; j++) {
+      const v = samples[i + j];
+      sum += v * v;
+    }
+    rmsList.push(Math.sqrt(sum / frameStep));
+  }
+
+  if (rmsList.length === 0) return [];
+  const sorted = [...rmsList].sort((a, b) => a - b);
+  const noiseFloor = sorted[Math.floor(sorted.length * 0.2)] || 0.002;
+  const peakRef = sorted[Math.floor(sorted.length * 0.92)] || 0.05;
+  const threshold = Math.max(noiseFloor * 2.2, noiseFloor + (peakRef - noiseFloor) * 0.14);
+
+  const rawIslands: SpeechIsland[] = [];
+  let inSpeech = false;
+  let islandStartFrame = 0;
+  let energyAcc = 0;
+
+  for (let f = 0; f < rmsList.length; f++) {
+    const active = rmsList[f] > threshold;
+    if (active && !inSpeech) {
+      inSpeech = true;
+      islandStartFrame = f;
+      energyAcc = rmsList[f];
+    } else if (active && inSpeech) {
+      energyAcc += rmsList[f];
+    } else if (!active && inSpeech) {
+      inSpeech = false;
+      rawIslands.push({
+        start: rangeStart + islandStartFrame * 0.01,
+        end: rangeStart + f * 0.01,
+        energy: energyAcc,
+      });
+    }
+  }
+  if (inSpeech) {
+    rawIslands.push({
+      start: rangeStart + islandStartFrame * 0.01,
+      end: rangeStart + rmsList.length * 0.01,
+      energy: energyAcc,
+    });
+  }
+
+  // Funde micro-pausas internas de sílabas (< 75ms) mantendo pausas reais entre palavras
+  const merged: SpeechIsland[] = [];
+  for (const isl of rawIslands) {
+    const prev = merged[merged.length - 1];
+    if (prev && isl.start - prev.end < 0.075) {
+      prev.end = isl.end;
+      prev.energy += isl.energy;
+    } else if (isl.end - isl.start >= 0.03) {
+      merged.push({ ...isl });
+    }
+  }
+
+  return merged;
+}
+
+function alignWordsToAudio(
+  samples: Float32Array,
   text: string,
   segStart: number,
   segEnd: number,
@@ -93,26 +176,63 @@ function distributeSegmentWords(
     .filter(Boolean);
   if (tokens.length === 0) return [];
 
-  const duration = Math.max(0.05 * tokens.length, segEnd - segStart);
+  const islands = detectSpeechIslands(samples, segStart, segEnd);
+  const totalSpeechTime = islands.reduce((acc, isl) => acc + (isl.end - isl.start), 0);
+
+  // Fallback linear apenas se o trecho não tiver energia detectável
+  if (islands.length === 0 || totalSpeechTime < 0.05 * tokens.length) {
+    const duration = Math.max(0.05 * tokens.length, segEnd - segStart);
+    const totalChars = tokens.reduce((acc, t) => acc + Math.max(1, t.length), 0);
+    let cursor = segStart;
+    let id = startId;
+    return tokens.map((token) => {
+      const share = (Math.max(1, token.length) / totalChars) * duration;
+      const wStart = cursor;
+      const wEnd = Math.max(wStart + 0.02, cursor + share);
+      cursor = wEnd;
+      return { id: id++, text: token, start: wStart, end: wEnd, speaker: 0, deleted: false };
+    });
+  }
+
+  // Mapeia cada palavra proporcionalmente dentro das ilhas reais de voz (pulando silêncios)
   const totalChars = tokens.reduce((acc, t) => acc + Math.max(1, t.length), 0);
-  let cursor = segStart;
+  let islandIdx = 0;
+  let islandCursor = islands[0].start;
   let id = startId;
   const out: Word[] = [];
 
   for (const token of tokens) {
-    const share = (Math.max(1, token.length) / totalChars) * duration;
-    const wStart = cursor;
-    const wEnd = Math.max(wStart + 0.02, cursor + share);
+    let neededSpeech = (Math.max(1, token.length) / totalChars) * totalSpeechTime;
+    const wStart = Math.max(segStart, islandCursor - 0.025);
+    let wEnd = wStart + 0.03;
+
+    while (neededSpeech > 0 && islandIdx < islands.length) {
+      const isl = islands[islandIdx];
+      const avail = Math.max(0, isl.end - islandCursor);
+      if (avail >= neededSpeech) {
+        islandCursor += neededSpeech;
+        wEnd = Math.min(segEnd, islandCursor + 0.025);
+        neededSpeech = 0;
+      } else {
+        neededSpeech -= avail;
+        wEnd = Math.min(segEnd, isl.end + 0.025);
+        islandIdx++;
+        if (islandIdx < islands.length) {
+          islandCursor = islands[islandIdx].start;
+        }
+      }
+    }
+
     out.push({
       id: id++,
       text: token,
       start: wStart,
-      end: wEnd,
+      end: Math.max(wStart + 0.03, wEnd),
       speaker: 0,
       deleted: false,
     });
-    cursor = wEnd;
   }
+
   return out;
 }
 
@@ -165,8 +285,6 @@ export async function transcribeWithFreeLlmApi(
     }>;
   };
 
-  console.log("[FreeLLMAPI] Resposta de transcrição:", data);
-
   const rawWords =
     data.words && data.words.length > 0
       ? data.words
@@ -197,7 +315,8 @@ export async function transcribeWithFreeLlmApi(
     let nextId = 1;
     for (const seg of data.segments) {
       if (!seg.text) continue;
-      const segWords = distributeSegmentWords(
+      const segWords = alignWordsToAudio(
+        audio,
         seg.text,
         Number(seg.start ?? 0),
         Number(seg.end ?? Number(seg.start ?? 0) + 0.5),
@@ -210,7 +329,7 @@ export async function transcribeWithFreeLlmApi(
   }
 
   if (typeof data.text === "string" && data.text.trim().length > 0) {
-    return distributeSegmentWords(data.text, 0, Math.max(1, totalAudioSeconds), 1);
+    return alignWordsToAudio(audio, data.text, 0, Math.max(1, totalAudioSeconds), 1);
   }
 
   throw new Error(
