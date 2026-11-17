@@ -325,6 +325,7 @@ const SOURCE_ICONS: Record<TranscriptSource, IconComponent> = {
   base: SignalBarsLow,
   small: SignalBarsMedium,
   parakeet: SignalBarsHigh,
+  freellmapi: SignalBarsHigh,
   import: FileText,
 };
 

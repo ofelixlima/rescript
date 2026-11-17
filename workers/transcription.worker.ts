@@ -446,7 +446,7 @@ const models = new ModelManager({
   models: Object.fromEntries(
     (Object.keys(MODELS) as ModelId[]).map((choice) => {
       const info = MODELS[choice];
-      if (info.backend === "parakeet") {
+      if (info.backend !== "whisper") {
         return [info.id, parakeetModel()];
       }
       const definition = transformersModel<AutomaticSpeechRecognitionPipeline>({

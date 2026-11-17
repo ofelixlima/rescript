@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { transcribeWithFreeLlmApi } from "@/lib/freellmapi";
 import { en } from "@/lib/i18n/messages/en";
 import { isModelId } from "@/lib/models";
 import { reportError } from "@/lib/sentry";
@@ -38,8 +39,37 @@ export function useTranscriber() {
     store.setStatus("transcribing");
     store.setProgress({ message: en["progress.loadingSpeechModel"], value: null });
 
-    // Always start a fresh worker so a prior cancel can't leave us without one.
     cancelTranscription();
+
+    if (model === "freellmapi") {
+      store.setProgress({
+        message: "Transcrevendo via FreeLLMAPI (Nuvem)...",
+        value: null,
+      });
+      void transcribeWithFreeLlmApi(audio, transcriptLanguage)
+        .then((words) => {
+          const s = useEditorStore.getState();
+          if (s.skipTranscription) return;
+          s.setWords(words);
+          s.setStatus("ready");
+          s.setPartialText("");
+          trackEvent("transcription_completed", {
+            model,
+            language: transcriptLanguage,
+          });
+        })
+        .catch((err: unknown) => {
+          const s = useEditorStore.getState();
+          if (s.skipTranscription) return;
+          const message =
+            err instanceof Error
+              ? err.message
+              : "Falha ao transcrever via FreeLLMAPI.";
+          s.setError(message);
+        });
+      return;
+    }
+
     workerRef.current = new Worker(
       new URL("../workers/transcription.worker.ts", import.meta.url),
       { type: "module" }
@@ -47,7 +77,6 @@ export function useTranscriber() {
     activeWorker = workerRef.current;
     workerRef.current.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const s = useEditorStore.getState();
-      // An imported transcript sets skipTranscription; ignore late ASR results.
       if (s.skipTranscription) return;
       const msg = event.data;
       switch (msg.type) {
@@ -61,28 +90,16 @@ export function useTranscriber() {
           s.setWords(msg.words);
           s.setStatus("ready");
           s.setPartialText("");
-          // Which model and language actually get used, to prioritise backends.
-          // Nothing about the media itself — not its length, not the text.
           trackEvent("transcription_completed", {
             model,
             language: transcriptLanguage,
           });
-          // Drop the worker (and its ORT heaps) before the user exports.
-          // Every transcribe() already starts a fresh worker, so keeping this
-          // one alive only competes with ffmpeg.wasm for renderer memory —
-          // especially painful in Electron, where a second 1 GiB core load
-          // after ASR is what made "ffmpeg not starting" show up on export.
           cancelTranscription();
           workerRef.current = null;
           break;
         case "error":
           s.setError(msg.message);
-          // A connection that dropped mid-download is the user's network, and
-          // the worker already retried it. There is no stack to act on, so
-          // reporting it only spends quota on an issue we cannot fix.
           if (msg.cause !== "network") {
-            // Worker errors cross a postMessage boundary, so the original stack
-            // is already gone by here — send the message with a stage tag.
             reportError(new Error(msg.message), "transcription");
           }
           break;
@@ -98,11 +115,6 @@ export function useTranscriber() {
       );
     };
 
-    // Transfer, not copy: the worker takes ownership of the PCM and `audio` is
-    // detached here. Nothing on the main thread reads it afterwards — the
-    // waveform draws from the envelope the store built in setAudio — and on a
-    // long recording the copy this replaces was hundreds of megabytes held for
-    // the length of the run.
     workerRef.current.postMessage(
       { audio, duration, model, language: transcriptLanguage },
       [audio.buffer]
