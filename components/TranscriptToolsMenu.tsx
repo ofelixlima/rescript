@@ -85,6 +85,7 @@ export default function TranscriptToolsMenu() {
   const words = useEditorStore((s) => s.words);
   const duration = useEditorStore((s) => s.duration);
   const manualCuts = useEditorStore((s) => s.manualCuts);
+  const waveform = useEditorStore((s) => s.waveform);
   const deleteWords = useEditorStore((s) => s.deleteWords);
   const restoreWords = useEditorStore((s) => s.restoreWords);
   const cutRanges = useEditorStore((s) => s.cutRanges);
@@ -97,7 +98,7 @@ export default function TranscriptToolsMenu() {
     () => ({
       fillerIds: findFillerWordIds(words),
       deletedFillerIds: findDeletedFillerWordIds(words),
-      silenceRanges: findSilenceRanges(words, duration, manualCuts),
+      silenceRanges: findSilenceRanges(words, duration, manualCuts, waveform),
       silenceCuts: findSilenceCuts(words, manualCuts),
       deleteWords,
       restoreWords,
@@ -108,6 +109,7 @@ export default function TranscriptToolsMenu() {
       words,
       duration,
       manualCuts,
+      waveform,
       deleteWords,
       restoreWords,
       cutRanges,

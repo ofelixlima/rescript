@@ -1,4 +1,3 @@
-cat << 'EOF' > instalar_linux.sh
 #!/usr/bin/env bash
 
 # ==============================================================================
@@ -36,7 +35,7 @@ else
   find "$DIR_PROJETO" -name "*.png" | grep -i "icon" | head -n 1 | xargs -I {} cp {} "$PASTA_ICONES/rescript.png"
 fi
 
-# 4. Cria o executor oficial compatível com NVM / Node moderno
+# 4. Cria o executor oficial compatível com NVM / Node moderno e sandbox ajustado
 cat << EXEC_EOF > "$DIR_PROJETO/executar.sh"
 #!/usr/bin/env bash
 cd "$DIR_PROJETO" || exit 1
@@ -76,12 +75,3 @@ echo "----------------------------------------------------------"
 echo "✅ INSTALAÇÃO CONCLUÍDA COM SUCESSO!"
 echo "🚀 O ReScript já está disponível no seu Menu de Aplicativos!"
 echo "=========================================================="
-EOF
-
-# Dá permissão de execução ao instalador
-chmod +x instalar_linux.sh
-echo "🎉 Arquivo 'instalar_linux.sh' criado e pronto para backup!"
-
-## Instructions to run the script
-#npm install
-#./instalar_linux.sh
